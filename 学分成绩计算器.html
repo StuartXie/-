@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学分绩点计算器</title>
+<style>
+  :root {
+    --bg: #f5f7fb;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --brand: #2563eb;
+    --brand-soft: #eff6ff;
+    --line: #e5e7eb;
+    --ok: #059669;
+    --warn: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { margin-bottom: 24px; }
+  h1 { margin: 0 0 6px; font-size: 26px; }
+  .subtitle { color: var(--muted); margin: 0; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
+  }
+  .card h2 { margin: 0 0 14px; font-size: 16px; }
+  .drop {
+    border: 2px dashed #c7d2fe;
+    border-radius: 12px;
+    padding: 26px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: .15s;
+  }
+  .drop:hover, .drop.dragover { background: var(--brand-soft); border-color: var(--brand); }
+  .drop strong { color: var(--brand); }
+  input[type="file"] { display: none; }
+  .filters { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
+  label.chk { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .semesters { margin-top: 14px; }
+  .sem-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .sem-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sem-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer; background: #fff; font-size: 14px;
+  }
+  .sem-item.on { background: var(--brand-soft); border-color: #93c5fd; color: #1d4ed8; }
+  .formula {
+    background: #f8fafc; border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; font-size: 15px; margin-bottom: 14px;
+  }
+  .formula .frac { display: inline-flex; flex-direction: column; text-align: center; vertical-align: middle; margin: 0 4px; }
+  .formula .num { border-bottom: 1px solid var(--text); padding: 0 6px 2px; }
+  .formula .den { padding: 2px 6px 0; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .stat { background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .stat .k { font-size: 13px; color: var(--muted); }
+  .stat .v { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .stat .v.big { color: var(--brand); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { color: var(--muted); font-weight: 600; background: #f8fafc; position: sticky; top: 0; }
+  tbody tr:hover { background: #fafbfd; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .excluded td { color: var(--muted); }
+  .reason { color: var(--warn); font-size: 12px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  .table-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .btn {
+    border: 1px solid var(--line); background: #fff; color: var(--text);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  .btn:hover { background: #f3f4f6; }
+  .error { color: #b91c1c; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>学分绩点计算器</h1>
+    <p class="subtitle">读取“学生成绩单.html”，按课程性质/课程类型筛选课程，计算加权平均学分绩点。</p>
+  </header>
+
+  <div class="card">
+    <h2>① 载入成绩单</h2>
+    <div class="drop" id="drop">
+      <strong>点击选择文件</strong> 或把 <code>学生成绩单.html</code> 拖到这里<br>
+      <span class="note">也可以粘贴 HTML 文本，见下方“手动粘贴”区域</span>
+    </div>
+    <input type="file" id="fileInput" accept=".html,.htm,text/html">
+    <details>
+      <summary>手动粘贴 HTML</summary>
+      <textarea id="pasteArea" style="width:100%;height:120px;margin-top:10px;font-family:monospace" placeholder="把学生成绩单的 HTML 源代码粘贴到这里…"></textarea>
+      <button class="btn" id="pasteBtn" style="margin-top:8px">解析粘贴内容</button>
+    </details>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="card" id="filterCard" hidden>
+    <h2>② 筛选条件</h2>
+    <div class="filters">
+      <label class="chk"><input type="checkbox" id="onlyRequired" checked> 课程性质 = 必修课</label>
+      <label class="chk"><input type="checkbox" id="includeProfessional" checked> 课程类型 = 专业教育课程（选修课也纳入）</label>
+      <label class="chk"><input type="checkbox" id="includeDisciplineBase" checked> 课程类型 = 学科专业基础课程（选修课也纳入）</label>
+      <label class="chk"><input type="checkbox" id="excludeZeroCredit" checked> 排除学分为 0 的课程</label>
+    </div>
+    <div class="semesters" id="semestersWrap">
+      <div class="sem-head">
+        <strong>选择学期</strong>
+        <span>
+          <button class="btn" id="selectAll">全选</button>
+          <button class="btn" id="clearAll">清空</button>
+        </span>
+      </div>
+      <div class="sem-list" id="semList"></div>
+    </div>
+  </div>
+
+  <div class="card" id="resultCard" hidden>
+    <h2>③ 计算结果</h2>
+    <div class="formula">
+      平均学分绩点 =
+      <span class="frac"><span class="num">Σ(满足条件课程的学分 × 相应课程的绩点)</span><span class="den">Σ(满足条件课程的学分)</span></span>
+      &nbsp;&nbsp;|&nbsp;&nbsp;
+      平均学分成绩（百分制） =
+      <span class="frac"><span class="num">Σ(满足条件课程的学分 × 折算后百分制成绩)</span><span class="den">Σ(满足条件课程的学分)</span></span>
+    </div>
+    <div class="note">五级制计分课程折算标准：优 = 95 分，良 = 85 分，中 = 75 分，及格 = 65 分，不及格 = 50 分（“合格”按 65 分计）。</div>
+    <div class="stats" id="stats"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:22px">
+      <h2 style="margin:0">纳入计算的课程（<span id="inclCount">0</span> 门）</h2>
+      <button class="btn" id="exportXlsxBtn" type="button">导出 xlsx</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>学期</th><th>课程名称</th><th class="num">学分</th><th class="num">绩点</th><th class="num">学分×绩点</th><th>成绩</th><th class="num">折算百分制</th></tr></thead>
+        <tbody id="includedBody"></tbody>
+      </table>
+    </div>
+    <details id="excludedWrap">
+      <summary>查看未纳入计算的课程（<span id="exclCount">0</span> 门）</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>学期</th><th>课程名称</th><th>课程性质</th><th class="num">学分</th><th>未纳入原因</th></tr></thead>
+          <tbody id="excludedBody"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+(function () {
+  var rawText = '';
+  var courses = []; // {sem, name, nature, credit, gp, score}
+  var currentIncluded = [];
+
+  var fileInput = document.getElementById('fileInput');
+  var drop = document.getElementById('drop');
+  var pasteArea = document.getElementById('pasteArea');
+  var pasteBtn = document.getElementById('pasteBtn');
+  var errorEl = document.getElementById('error');
+  var filterCard = document.getElementById('filterCard');
+  var resultCard = document.getElementById('resultCard');
+  var onlyRequired = document.getElementById('onlyRequired');
+  var includeProfessional = document.getElementById('includeProfessional');
+  var includeDisciplineBase = document.getElementById('includeDisciplineBase');
+  var excludeZeroCredit = document.getElementById('excludeZeroCredit');
+  var semList = document.getElementById('semList');
+  var stats = document.getElementById('stats');
+  var includedBody = document.getElementById('includedBody');
+  var excludedBody = document.getElementById('excludedBody');
+  var excludedWrap = document.getElementById('excludedWrap');
+
+  drop.addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () { loadText(String(reader.result)); };
+    reader.readAsText(f, 'utf-8');
+  });
+  ['dragover','dragenter'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('dragover'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () { loadText(String(reader.result)); };
+    reader.readAsText(f, 'utf-8');
+  });
+  pasteBtn.addEventListener('click', function () { loadText(pasteArea.value); });
+
+  onlyRequired.addEventListener('change', render);
+  includeProfessional.addEventListener('change', render);
+  includeDisciplineBase.addEventListener('change', render);
+  excludeZeroCredit.addEventListener('change', render);
+  document.getElementById('selectAll').addEventListener('click', function(){ setSemesterAll(true); });
+  document.getElementById('clearAll').addEventListener('click', function(){ setSemesterAll(false); });
+  document.getElementById('exportXlsxBtn').addEventListener('click', exportXlsx);
+
+  function loadText(text) {
+    errorEl.textContent = '';
+    if (!text || !text.trim()) { errorEl.textContent = '内容为空，请先选择或粘贴成绩单 HTML。'; return; }
+    try {
+      var doc = new DOMParser().parseFromString(text, 'text/html');
+      var blocks = Array.prototype.slice.call(doc.querySelectorAll('.table-wrapper > div'));
+      courses = [];
+      blocks.forEach(function (block) {
+        var semEl = block.querySelector('.semesterName');
+        var sem = semEl ? semEl.textContent.replace(/\s+/g,' ').trim() : '未知学期';
+        var table = block.querySelector('table');
+        if (!table) return;
+        var rows = table.querySelectorAll('tbody > tr');
+        Array.prototype.slice.call(rows).forEach(function (tr) {
+          var tds = tr.children;
+          if (tds.length < 4) return;
+          var name = tds[0] && tds[0].children[0] ? tds[0].children[0].textContent.replace(/\s+/g,' ').trim() : '';
+          var infoDiv = tds[0] && tds[0].children[1] ? tds[0].children[1] : null;
+          var spans = infoDiv ? infoDiv.querySelectorAll('span') : [];
+          var nature = spans.length > 1 ? spans[1].textContent.replace(/\s+/g,' ').trim() : '';
+          var ctype = spans.length > 2 ? spans[2].textContent.replace(/\s+/g,' ').trim() : '';
+          var credit = parseFloat(tds[1] ? tds[1].textContent.trim() : '');
+          var gp = parseFloat(tds[2] ? tds[2].textContent.trim() : '');
+          var score = tds[3] ? tds[3].textContent.replace(/\s+/g,' ').trim() : '';
+          courses.push({ sem: sem, name: name, nature: nature, ctype: ctype, credit: credit, gp: gp, score: score });
+        });
+      });
+    } catch (err) {
+      errorEl.textContent = '解析失败：' + err.message;
+      return;
+    }
+    if (!courses.length) {
+      errorEl.textContent = '没有解析到课程数据，请确认文件是导出的“学生成绩单.html”。';
+      filterCard.hidden = true; resultCard.hidden = true;
+      return;
+    }
+    rawText = text;
+    buildSemesterList();
+    filterCard.hidden = false;
+    resultCard.hidden = false;
+    render();
+  }
+
+  function buildSemesterList() {
+    var sems = [];
+    courses.forEach(function(c){ if (sems.indexOf(c.sem) < 0) sems.push(c.sem); });
+    semList.innerHTML = '';
+    sems.forEach(function (sem) {
+      var label = document.createElement('label');
+      label.className = 'sem-item on';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = sem;
+      cb.checked = true;
+      cb.addEventListener('change', function () {
+        label.classList.toggle('on', cb.checked);
+        render();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(sem));
+      semList.appendChild(label);
+    });
+  }
+
+  function setSemesterAll(on) {
+    var cbs = semList.querySelectorAll('input[type=checkbox]');
+    Array.prototype.slice.call(cbs).forEach(function(cb){
+      cb.checked = on;
+      var it = cb.closest('.sem-item');
+      if (it) it.classList.toggle('on', on);
+    });
+    render();
+  }
+
+  function selectedSemesters() {
+    var out = [];
+    semList.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+      if (cb.checked) out.push(cb.value);
+    });
+    return out;
+  }
+
+  function includeCourse(c, reqFilter, typeFilter, baseFilter, zeroFilter) {
+    if (zeroFilter && c.credit === 0) return { inc: false, reason: '学分为 0' };
+    var ok = false;
+    if (reqFilter && c.nature === '必修课') ok = true;
+    if (typeFilter && c.ctype === '专业教育课程') ok = true;
+    if (baseFilter && c.ctype === '学科专业基础课程') ok = true;
+    if (!ok) return { inc: false, reason: '不符合筛选条件（非必修课且非专业教育课程/学科专业基础课程）' };
+    return { inc: true, reason: '' };
+  }
+
+  function render() {
+    var sems = selectedSemesters();
+    var reqFilter = onlyRequired.checked;
+    var typeFilter = includeProfessional.checked;
+    var baseFilter = includeDisciplineBase.checked;
+    var zeroFilter = excludeZeroCredit.checked;
+
+    var included = [];
+    var excluded = [];
+    courses.forEach(function (c) {
+      if (sems.indexOf(c.sem) < 0) return;
+      var r = includeCourse(c, reqFilter, typeFilter, baseFilter, zeroFilter);
+      (r.inc ? included : excluded).push(Object.assign({}, c, { reason: r.reason }));
+    });
+
+    var sumCredit = 0, sumProduct = 0, sumScore = 0;
+    included.forEach(function(c){
+      sumCredit += c.credit;
+      sumProduct += c.credit * c.gp;
+      sumScore += c.credit * toPercent(c.score);
+    });
+    var gpa = sumCredit > 0 ? sumProduct / sumCredit : 0;
+    var avgScore = sumCredit > 0 ? sumScore / sumCredit : 0;
+    currentIncluded = included;
+
+    document.getElementById('inclCount').textContent = included.length;
+    document.getElementById('exclCount').textContent = excluded.length;
+
+    stats.innerHTML = '';
+    stats.appendChild(statBox('纳入课程门数', included.length, false));
+    stats.appendChild(statBox('学分合计', fmt(sumCredit), false));
+    stats.appendChild(statBox('Σ(学分×绩点)', fmt(sumProduct), false));
+    stats.appendChild(statBox('平均学分绩点', gpa.toFixed(2), true));
+    stats.appendChild(statBox('平均学分成绩（百分制）', isFinite(avgScore) ? avgScore.toFixed(2) : '—', true));
+
+    includedBody.innerHTML = '';
+    included.forEach(function (c) {
+      var tr = document.createElement('tr');
+      var pct = toPercent(c.score);
+      tr.innerHTML = '<td>'+esc(c.sem)+'</td><td>'+esc(c.name)+'</td>' +
+        '<td class="num">'+fmt(c.credit)+'</td><td class="num">'+fmt(c.gp)+'</td>' +
+        '<td class="num">'+fmt(c.credit * c.gp)+'</td>' +
+        '<td>'+esc(c.score)+'</td><td class="num">'+(isFinite(pct) ? fmt(pct) : '—')+'</td>';
+      includedBody.appendChild(tr);
+    });
+
+    excludedBody.innerHTML = '';
+    excluded.forEach(function (c) {
+      var tr = document.createElement('tr');
+      tr.className = 'excluded';
+      tr.innerHTML = '<td>'+esc(c.sem)+'</td><td>'+esc(c.name)+'</td><td>'+esc(c.nature)+'</td>' +
+        '<td class="num">'+fmt(c.credit)+'</td><td class="reason">'+esc(c.reason)+'</td>';
+      excludedBody.appendChild(tr);
+    });
+    excludedWrap.open = false;
+  }
+
+  function statBox(k, v, big) {
+    var d = document.createElement('div');
+    d.className = 'stat';
+    var kd = document.createElement('div'); kd.className = 'k'; kd.textContent = k;
+    var vd = document.createElement('div'); vd.className = 'v' + (big ? ' big' : ''); vd.textContent = v;
+    d.appendChild(kd); d.appendChild(vd);
+    return d;
+  }
+
+  function toPercent(score) {
+    var s = String(score == null ? '' : score).trim();
+    if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    if (s.indexOf('优') >= 0) return 95;
+    if (s.indexOf('良') >= 0) return 85;
+    if (s.indexOf('中') >= 0) return 75;
+    if (s.indexOf('及格') >= 0 || s.indexOf('合格') >= 0) return 65;
+    if (s.indexOf('不及格') >= 0 || s.indexOf('不合格') >= 0) return 50;
+    return NaN;
+  }
+
+  function fmt(n) {
+    if (!isFinite(n)) return String(n);
+    if (Number.isInteger(n)) return String(n);
+    return String(Math.round(n * 100) / 100);
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+    });
+  }
+
+  function exportXlsx() {
+    if (!currentIncluded.length) {
+      alert('当前没有可导出的课程，请先载入成绩单并选择筛选条件。');
+      return;
+    }
+    var bytes = buildXlsx(currentIncluded);
+    var d = new Date();
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    var filename = '学分绩点-纳入计算课程-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.xlsx';
+    var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function buildXlsx(rows) {
+    var headers = ['学期', '课程名称', '学分', '绩点', '学分×绩点', '成绩', '折算百分制'];
+    var sheetRows = [headers];
+    rows.forEach(function (c) {
+      var pct = toPercent(c.score);
+      sheetRows.push([
+        c.sem,
+        c.name,
+        round2(c.credit),
+        round2(c.gp),
+        round2(c.credit * c.gp),
+        c.score,
+        isFinite(pct) ? round2(pct) : ''
+      ]);
+    });
+
+    var encoder = new TextEncoder();
+    var files = [
+      { name: '[Content_Types].xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        '</Types>') },
+      { name: '_rels/.rels', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+        '</Relationships>') },
+      { name: 'xl/workbook.xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheets><sheet name="纳入计算课程" sheetId="1" r:id="rId1"/></sheets>' +
+        '</workbook>') },
+      { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+        '</Relationships>') },
+      { name: 'xl/styles.xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>' +
+        '<borders count="1"><border/></borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>' +
+        '</styleSheet>') },
+      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(buildSheetXml(sheetRows)) }
+    ];
+    return zipBytes(files);
+  }
+
+  function buildSheetXml(rows) {
+    var cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+    var numericCols = { C: true, D: true, E: true, G: true };
+    var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+    rows.forEach(function (row, ri) {
+      var r = ri + 1;
+      xml += '<row r="' + r + '">';
+      cols.forEach(function (col, ci) {
+        var value = row[ci];
+        var ref = col + r;
+        if (ri === 0 || !numericCols[col]) {
+          xml += '<c r="' + ref + '" t="inlineStr"><is><t>' + xmlEscape(String(value)) + '</t></is></c>';
+        } else if (value === '' || value == null || !isFinite(value)) {
+          xml += '<c r="' + ref + '"/>';
+        } else {
+          xml += '<c r="' + ref + '"><v>' + value + '</v></c>';
+        }
+      });
+      xml += '</row>';
+    });
+    xml += '</sheetData></worksheet>';
+    return xml;
+  }
+
+  function xmlEscape(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function round2(n) {
+    return Math.round(n * 100) / 100;
+  }
+
+  var crcTable = null;
+  function crc32(bytes) {
+    if (!crcTable) {
+      crcTable = [];
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) {
+          c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        crcTable[n] = c >>> 0;
+      }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) {
+      crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function zipBytes(entries) {
+    var out = [];
+    var central = [];
+    var offset = 0;
+    var d = new Date();
+    var dosTime = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF;
+    var dosDate = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+
+    function u16(v) { out.push(v & 0xFF, (v >>> 8) & 0xFF); }
+    function u32(v) { out.push(v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF); }
+
+    var encoder = new TextEncoder();
+    entries.forEach(function (e) {
+      var nameBytes = encoder.encode(e.name);
+      var data = e.data;
+      var crc = crc32(data);
+      var nameLen = nameBytes.length;
+      u32(0x04034b50); u16(20); u16(0); u16(0); u16(dosTime); u16(dosDate);
+      u32(crc); u32(data.length); u32(data.length); u16(nameLen); u16(0);
+      for (var i = 0; i < nameLen; i++) out.push(nameBytes[i]);
+      for (var j = 0; j < data.length; j++) out.push(data[j]);
+      central.push({ nameBytes: nameBytes, crc: crc, size: data.length, offset: offset });
+      offset += 30 + nameLen + data.length;
+    });
+
+    var centralStart = out.length;
+    central.forEach(function (e) {
+      u32(0x02014b50); u16(20); u16(20); u16(0); u16(0); u16(dosTime); u16(dosDate);
+      u32(e.crc); u32(e.size); u32(e.size); u16(e.nameBytes.length); u16(0); u16(0); u16(0); u16(0); u32(0); u32(e.offset);
+      for (var i = 0; i < e.nameBytes.length; i++) out.push(e.nameBytes[i]);
+    });
+    var centralSize = out.length - centralStart;
+    u32(0x06054b50); u16(0); u16(0); u16(central.length); u16(central.length);
+    u32(centralSize); u32(centralStart); u16(0);
+    return new Uint8Array(out);
+  }
+
+})();
+</script>
+</body>
+</html>
