@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>批量成绩统计</title>
+<style>
+  :root {
+    --bg:#f5f7fb; --card:#fff; --text:#1f2937; --muted:#6b7280;
+    --brand:#2563eb; --brand-soft:#eff6ff; --line:#e5e7eb; --warn:#b45309; --ok:#059669;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  .wrap { max-width:1100px; margin:0 auto; padding:32px 20px 64px; }
+  header { margin-bottom:24px; }
+  h1 { margin:0 0 6px; font-size:26px; }
+  .subtitle { color:var(--muted); margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+  .card h2 { margin:0 0 14px; font-size:16px; }
+  .drop { border:2px dashed #c7d2fe; border-radius:12px; padding:26px; text-align:center; color:var(--muted); cursor:pointer; transition:.15s; }
+  .drop:hover, .drop.dragover { background:var(--brand-soft); border-color:var(--brand); }
+  .drop strong { color:var(--brand); }
+  input[type=file] { display:none; }
+  .filters { display:flex; flex-wrap:wrap; gap:16px; margin-top:14px; }
+  label.chk { display:flex; align-items:center; gap:8px; cursor:pointer; }
+  .semesters { margin-top:14px; }
+  .sem-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .sem-list { display:flex; flex-wrap:wrap; gap:8px; }
+  .sem-item { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:6px 12px; cursor:pointer; background:#fff; font-size:14px; }
+  .sem-item.on { background:var(--brand-soft); border-color:#93c5fd; color:#1d4ed8; }
+  .btn { border:1px solid var(--line); background:#fff; color:var(--text); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
+  .btn:hover { background:#f3f4f6; }
+  .btn-primary { background:var(--brand); border-color:var(--brand); color:#fff; }
+  .btn-primary:hover { background:#1d4ed8; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--muted); font-weight:600; background:#f8fafc; position:sticky; top:0; }
+  tbody tr:hover { background:#fafbfd; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .avg-row td { background:#fffbeb; font-weight:600; }
+  .table-wrap { max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+  .empty { color:var(--muted); text-align:center; padding:24px; }
+  .note { color:var(--muted); font-size:13px; margin-top:10px; }
+  .error { color:#b91c1c; margin-top:10px; }
+  .export-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>批量成绩统计</h1>
+    <p class="subtitle">一次上传多个学生成绩单（文件名如 <code>张三-学生成绩单.html</code>），按相同规则统计并导出 Excel。</p>
+  </header>
+
+  <div class="card">
+    <h2>① 上传学生成绩单</h2>
+    <div class="drop" id="drop">
+      <strong>点击选择多个文件</strong> 或把多个 <code>学生成绩单.html</code> 拖到这里<br>
+      <span class="note">学生姓名取自文件名中“学生成绩单”前面的部分，例如“张三-学生成绩单.html”→“张三”。</span>
+    </div>
+    <input type="file" id="fileInput" accept=".html,.htm,text/html" multiple>
+    <div class="note" id="fileList"></div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div class="card" id="filterCard" hidden>
+    <h2>② 筛选条件（对所有学生统一生效）</h2>
+    <div class="filters">
+      <label class="chk"><input type="checkbox" id="onlyRequired" checked> 课程性质 = 必修课</label>
+      <label class="chk"><input type="checkbox" id="includeProfessional" checked> 课程类型 = 专业教育课程（选修课也纳入）</label>
+      <label class="chk"><input type="checkbox" id="includeDisciplineBase" checked> 课程类型 = 学科专业基础课程（选修课也纳入）</label>
+      <label class="chk"><input type="checkbox" id="excludeZeroCredit" checked> 排除学分为 0 的课程</label>
+    </div>
+    <div class="semesters" id="semestersWrap">
+      <div class="sem-head">
+        <strong>选择学期</strong>
+        <span>
+          <button class="btn" id="selectAll">全选</button>
+          <button class="btn" id="clearAll">清空</button>
+        </span>
+      </div>
+      <div class="sem-list" id="semList"></div>
+    </div>
+    <div class="note">五级制折算标准：优=95、良=85、中=75、及格=65、不及格=50（“合格”按 65 计）。</div>
+  </div>
+
+  <div class="card" id="resultCard" hidden>
+    <h2>③ 统计结果</h2>
+    <div class="export-bar">
+      <label class="chk"><input type="checkbox" id="includeAverage" checked> 计算所有学生平均学分成绩（导出时附加平均行）</label>
+      <div>
+        <button class="btn" id="clearBtn" type="button">清空数据</button>
+        <button class="btn btn-primary" id="exportBtn" type="button">导出 Excel</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>序号</th><th>学生</th><th class="num">课程门数</th><th class="num">学分合计</th>
+            <th class="num">平均学分绩点</th><th class="num">平均学分成绩（百分制）</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var students = []; // {name, file, courses}
+  var currentResults = [];
+  var semesterOrder = [];
+
+  var fileInput = document.getElementById('fileInput');
+  var drop = document.getElementById('drop');
+  var errorEl = document.getElementById('error');
+  var fileListEl = document.getElementById('fileList');
+  var filterCard = document.getElementById('filterCard');
+  var resultCard = document.getElementById('resultCard');
+  var onlyRequired = document.getElementById('onlyRequired');
+  var includeProfessional = document.getElementById('includeProfessional');
+  var includeDisciplineBase = document.getElementById('includeDisciplineBase');
+  var excludeZeroCredit = document.getElementById('excludeZeroCredit');
+  var semList = document.getElementById('semList');
+  var resultBody = document.getElementById('resultBody');
+  var includeAverage = document.getElementById('includeAverage');
+  var exportBtn = document.getElementById('exportBtn');
+  var clearBtn = document.getElementById('clearBtn');
+
+  drop.addEventListener('click', function(){ fileInput.click(); });
+  fileInput.addEventListener('change', function(){ handleFiles(fileInput.files); });
+  ['dragover','dragenter'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('dragover'); });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('dragover'); });
+  });
+  drop.addEventListener('drop', function(e){ handleFiles(e.dataTransfer.files); });
+
+  onlyRequired.addEventListener('change', render);
+  includeProfessional.addEventListener('change', render);
+  includeDisciplineBase.addEventListener('change', render);
+  excludeZeroCredit.addEventListener('change', render);
+  includeAverage.addEventListener('change', render);
+  document.getElementById('selectAll').addEventListener('click', function(){ setSemesterAll(true); });
+  document.getElementById('clearAll').addEventListener('click', function(){ setSemesterAll(false); });
+  exportBtn.addEventListener('click', exportXlsx);
+  clearBtn.addEventListener('click', function(){ clearAll(); });
+
+  function handleFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    students = [];
+    semesterOrder = [];
+    currentResults = [];
+    errorEl.textContent = '';
+    fileListEl.textContent = '';
+
+    var usedNames = {};
+    var pending = files.length;
+    files.forEach(function (f) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var courses = parseCourses(String(reader.result));
+        if (!courses.length) {
+          errorEl.textContent += '文件“' + f.name + '”未解析到课程数据。\n';
+        } else {
+          var base = studentNameFromFilename(f.name);
+          var name = makeUniqueName(base, usedNames);
+          students.push({ name: name, file: f.name, courses: courses });
+          courses.forEach(function(c){ if (semesterOrder.indexOf(c.sem) < 0) semesterOrder.push(c.sem); });
+        }
+        pending -= 1;
+        if (pending <= 0) afterFilesLoaded();
+      };
+      reader.readAsText(f, 'utf-8');
+    });
+  }
+
+  function afterFilesLoaded() {
+    if (!students.length) {
+      filterCard.hidden = true; resultCard.hidden = true;
+      fileListEl.textContent = '没有成功解析的学生成绩单。';
+      return;
+    }
+    fileListEl.textContent = '已解析 ' + students.length + ' 名学生：' + students.map(function(s){ return s.name; }).join('、');
+    buildSemesterList();
+    filterCard.hidden = false;
+    resultCard.hidden = false;
+    render();
+  }
+
+  function clearAll() {
+    students = [];
+    currentResults = [];
+    semesterOrder = [];
+    fileInput.value = '';
+    fileListEl.textContent = '';
+    errorEl.textContent = '';
+    filterCard.hidden = true;
+    resultCard.hidden = true;
+    semList.innerHTML = '';
+    resultBody.innerHTML = '';
+  }
+
+  function studentNameFromFilename(name) {
+    var base = String(name || '').replace(/\.html?$/i, '');
+    base = base.replace(/(?:[-_—\s]*学生成绩单)$/u, '');
+    base = base.trim();
+    return base || '未命名';
+  }
+
+  function makeUniqueName(base, used) {
+    var name = base;
+    var i = 2;
+    while (used[name]) { name = base + ' (' + i + ')'; i++; }
+    used[name] = true;
+    return name;
+  }
+
+  function parseCourses(text) {
+    var doc = new DOMParser().parseFromString(text, 'text/html');
+    var blocks = Array.prototype.slice.call(doc.querySelectorAll('.table-wrapper > div'));
+    var courses = [];
+    blocks.forEach(function (block) {
+      var semEl = block.querySelector('.semesterName');
+      var sem = semEl ? semEl.textContent.replace(/\s+/g,' ').trim() : '未知学期';
+      var table = block.querySelector('table');
+      if (!table) return;
+      Array.prototype.slice.call(table.querySelectorAll('tbody > tr')).forEach(function (tr) {
+        var tds = tr.children;
+        if (tds.length < 4) return;
+        var name = tds[0] && tds[0].children[0] ? tds[0].children[0].textContent.replace(/\s+/g,' ').trim() : '';
+        var infoDiv = tds[0] && tds[0].children[1] ? tds[0].children[1] : null;
+        var spans = infoDiv ? infoDiv.querySelectorAll('span') : [];
+        var nature = spans.length > 1 ? spans[1].textContent.replace(/\s+/g,' ').trim() : '';
+        var ctype = spans.length > 2 ? spans[2].textContent.replace(/\s+/g,' ').trim() : '';
+        var credit = parseFloat(tds[1] ? tds[1].textContent.trim() : '');
+        var gp = parseFloat(tds[2] ? tds[2].textContent.trim() : '');
+        var score = tds[3] ? tds[3].textContent.replace(/\s+/g,' ').trim() : '';
+        courses.push({ sem: sem, name: name, nature: nature, ctype: ctype, credit: credit, gp: gp, score: score });
+      });
+    });
+    return courses;
+  }
+
+  function buildSemesterList() {
+    semList.innerHTML = '';
+    semesterOrder.forEach(function (sem) {
+      var label = document.createElement('label');
+      label.className = 'sem-item on';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = sem;
+      cb.checked = true;
+      cb.addEventListener('change', function () {
+        label.classList.toggle('on', cb.checked);
+        render();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(sem));
+      semList.appendChild(label);
+    });
+  }
+
+  function setSemesterAll(on) {
+    Array.prototype.slice.call(semList.querySelectorAll('input[type=checkbox]')).forEach(function(cb){
+      cb.checked = on;
+      var it = cb.closest('.sem-item');
+      if (it) it.classList.toggle('on', on);
+    });
+    render();
+  }
+
+  function selectedSemesters() {
+    var out = [];
+    semList.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+      if (cb.checked) out.push(cb.value);
+    });
+    return out;
+  }
+
+  function includeCourse(c, reqFilter, typeFilter, baseFilter, zeroFilter) {
+    if (zeroFilter && c.credit === 0) return false;
+    if (reqFilter && c.nature === '必修课') return true;
+    if (typeFilter && c.ctype === '专业教育课程') return true;
+    if (baseFilter && c.ctype === '学科专业基础课程') return true;
+    return false;
+  }
+
+  function toPercent(score) {
+    var s = String(score == null ? '' : score).trim();
+    if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    if (s.indexOf('优') >= 0) return 95;
+    if (s.indexOf('良') >= 0) return 85;
+    if (s.indexOf('中') >= 0) return 75;
+    if (s.indexOf('及格') >= 0 || s.indexOf('合格') >= 0) return 65;
+    if (s.indexOf('不及格') >= 0 || s.indexOf('不合格') >= 0) return 50;
+    return NaN;
+  }
+
+  function render() {
+    var sems = selectedSemesters();
+    var reqFilter = onlyRequired.checked;
+    var typeFilter = includeProfessional.checked;
+    var baseFilter = includeDisciplineBase.checked;
+    var zeroFilter = excludeZeroCredit.checked;
+    var showAvg = includeAverage.checked;
+
+    currentResults = students.map(function (st) {
+      var included = st.courses.filter(function (c) {
+        return sems.indexOf(c.sem) >= 0 && includeCourse(c, reqFilter, typeFilter, baseFilter, zeroFilter);
+      });
+      var credit = 0, weighted = 0, scoreSum = 0;
+      included.forEach(function (c) {
+        credit += c.credit;
+        weighted += c.credit * c.gp;
+        scoreSum += c.credit * toPercent(c.score);
+      });
+      var gpa = credit > 0 ? weighted / credit : 0;
+      var avgScore = credit > 0 ? scoreSum / credit : 0;
+      return { name: st.name, count: included.length, credit: credit, gpa: gpa, avgScore: avgScore };
+    });
+
+    resultBody.innerHTML = '';
+    currentResults.forEach(function (r, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>'+ (i+1) +'</td><td>'+esc(r.name)+'</td>' +
+        '<td class="num">'+r.count+'</td><td class="num">'+fmt(r.credit)+'</td>' +
+        '<td class="num">'+fmt2(r.gpa)+'</td><td class="num">'+fmt2(r.avgScore)+'</td>';
+      resultBody.appendChild(tr);
+    });
+
+    if (showAvg && currentResults.length) {
+      var meanGpa = mean(currentResults.map(function(r){ return r.gpa; }));
+      var meanScore = mean(currentResults.map(function(r){ return r.avgScore; }));
+      var tr = document.createElement('tr');
+      tr.className = 'avg-row';
+      tr.innerHTML = '<td></td><td>全体学生平均</td><td class="num"></td><td class="num"></td>' +
+        '<td class="num">'+fmt2(meanGpa)+'</td><td class="num">'+fmt2(meanScore)+'</td>';
+      resultBody.appendChild(tr);
+    }
+  }
+
+  function exportXlsx() {
+    if (!currentResults.length) { alert('当前没有可导出的数据。'); return; }
+    var headers = ['序号', '学生', '课程门数', '学分合计', '平均学分绩点', '平均学分成绩（百分制）'];
+    var numericCols = { 2: true, 3: true, 4: true, 5: true };
+    var rows = currentResults.map(function (r, i) {
+      return [String(i + 1), r.name, r.count, round2(r.credit), round2(r.gpa), round2(r.avgScore)];
+    });
+    if (includeAverage.checked) {
+      var meanGpa = mean(currentResults.map(function(r){ return r.gpa; }));
+      var meanScore = mean(currentResults.map(function(r){ return r.avgScore; }));
+      rows.push(['', '全体学生平均', '', '', round2(meanGpa), round2(meanScore)]);
+    }
+    var d = new Date();
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    var filename = '批量成绩统计-' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.xlsx';
+    downloadXlsx(headers, rows, numericCols, filename);
+  }
+
+  function mean(arr) {
+    if (!arr.length) return 0;
+    var s = arr.reduce(function(a,b){ return a+b; }, 0);
+    return s / arr.length;
+  }
+
+  function fmt2(n) { return isFinite(n) ? n.toFixed(2) : '—'; }
+
+  function fmt(n) {
+    if (!isFinite(n)) return String(n);
+    if (Number.isInteger(n)) return String(n);
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function round2(n) { return Math.round(n * 100) / 100; }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+    });
+  }
+
+  function xmlEscape(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+    });
+  }
+
+  function downloadXlsx(headers, rows, numericCols, filename) {
+    var bytes = buildXlsx(headers, rows, numericCols);
+    var blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function buildXlsx(headers, rows, numericCols) {
+    var encoder = new TextEncoder();
+    var files = [
+      { name: '[Content_Types].xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        '</Types>') },
+      { name: '_rels/.rels', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+        '</Relationships>') },
+      { name: 'xl/workbook.xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheets><sheet name="批量成绩统计" sheetId="1" r:id="rId1"/></sheets>' +
+        '</workbook>') },
+      { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+        '</Relationships>') },
+      { name: 'xl/styles.xml', data: encoder.encode(
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>' +
+        '<borders count="1"><border/></borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>' +
+        '</styleSheet>') },
+      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(buildSheetXml(headers, rows, numericCols)) }
+    ];
+    return zipBytes(files);
+  }
+
+  function buildSheetXml(headers, rows, numericCols) {
+    var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+    xml += rowXml(headers, 0, numericCols);
+    rows.forEach(function (row, idx) { xml += rowXml(row, idx + 1, numericCols); });
+    xml += '</sheetData></worksheet>';
+    return xml;
+  }
+
+  function rowXml(values, ri, numericCols) {
+    var r = ri + 1;
+    var s = '<row r="' + r + '">';
+    values.forEach(function (v, ci) {
+      var ref = colLetter(ci) + r;
+      if (ri === 0 || !numericCols[ci]) {
+        s += '<c r="' + ref + '" t="inlineStr"><is><t>' + xmlEscape(String(v == null ? '' : v)) + '</t></is></c>';
+      } else if (v === '' || v == null || !isFinite(v)) {
+        s += '<c r="' + ref + '"/>';
+      } else {
+        s += '<c r="' + ref + '"><v>' + v + '</v></c>';
+      }
+    });
+    return s + '</row>';
+  }
+
+  function colLetter(i) {
+    var s = '';
+    var n = i + 1;
+    while (n > 0) {
+      var m = (n - 1) % 26;
+      s = String.fromCharCode(65 + m) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  var crcTable = null;
+  function crc32(bytes) {
+    if (!crcTable) {
+      crcTable = [];
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) {
+          c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        crcTable[n] = c >>> 0;
+      }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) {
+      crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function zipBytes(entries) {
+    var out = [];
+    var central = [];
+    var offset = 0;
+    var d = new Date();
+    var dosTime = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF;
+    var dosDate = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+
+    function u16(v) { out.push(v & 0xFF, (v >>> 8) & 0xFF); }
+    function u32(v) { out.push(v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF); }
+
+    var encoder = new TextEncoder();
+    entries.forEach(function (e) {
+      var nameBytes = encoder.encode(e.name);
+      var data = e.data;
+      var crc = crc32(data);
+      var nameLen = nameBytes.length;
+      u32(0x04034b50); u16(20); u16(0); u16(0); u16(dosTime); u16(dosDate);
+      u32(crc); u32(data.length); u32(data.length); u16(nameLen); u16(0);
+      for (var i = 0; i < nameLen; i++) out.push(nameBytes[i]);
+      for (var j = 0; j < data.length; j++) out.push(data[j]);
+      central.push({ nameBytes: nameBytes, crc: crc, size: data.length, offset: offset });
+      offset += 30 + nameLen + data.length;
+    });
+
+    var centralStart = out.length;
+    central.forEach(function (e) {
+      u32(0x02014b50); u16(20); u16(20); u16(0); u16(0); u16(dosTime); u16(dosDate);
+      u32(e.crc); u32(e.size); u32(e.size); u16(e.nameBytes.length); u16(0); u16(0); u16(0); u16(0); u32(0); u32(e.offset);
+      for (var i = 0; i < e.nameBytes.length; i++) out.push(e.nameBytes[i]);
+    });
+    var centralSize = out.length - centralStart;
+    u32(0x06054b50); u16(0); u16(0); u16(central.length); u16(central.length);
+    u32(centralSize); u32(centralStart); u16(0);
+    return new Uint8Array(out);
+  }
+})();
+</script>
+</body>
+</html>
